@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maze Chomp — Arcade Game</title>
+<style>
+:root{--bg:#070b1b;--panel:#101832;--blue:#3e73ff;--cyan:#62e7ff;--yellow:#ffe45c;--text:#eef3ff;--muted:#9eaccd}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at top,#172450 0%,var(--bg) 58%);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;align-items:center;justify-content:center;padding:22px}
+.shell{width:min(100%,760px)}header{text-align:center;margin-bottom:16px}h1{font-size:clamp(2rem,6vw,3.2rem);letter-spacing:.12em;margin:0;color:var(--yellow);text-shadow:0 0 24px #ffe45c44}header p{color:var(--muted);margin:6px 0 0}
+.hud{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 12px}.stat{background:#111a35;border:1px solid #2d3c70;border-radius:12px;padding:10px 15px;min-width:100px;flex:1}.stat span{display:block;font-size:.7rem;color:var(--muted);letter-spacing:.12em}.stat strong{font-size:1.25rem}
+.frame{position:relative;background:#030612;border:2px solid #3455bb;border-radius:16px;padding:8px;box-shadow:0 0 38px #235cff22;overflow:hidden}canvas{display:block;width:100%;height:auto;image-rendering:pixelated;border-radius:8px}
+.overlay{position:absolute;inset:8px;display:flex;align-items:center;justify-content:center;text-align:center;background:#030612d9;padding:22px;border-radius:8px}.overlay.hidden{display:none}.modal{max-width:360px}.modal h2{color:var(--yellow);font-size:1.8rem;margin:0 0 8px}.modal p{color:#c1cbe4;line-height:1.5}
+button{border:0;border-radius:999px;background:var(--yellow);color:#151526;font-weight:800;padding:12px 24px;cursor:pointer;font-size:1rem;box-shadow:0 5px 0 #b59b22;transition:transform .12s}button:active{transform:translateY(3px);box-shadow:0 2px 0 #b59b22}.bottom{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;color:var(--muted);font-size:.9rem}.bottom strong{color:var(--cyan)}
+.controls{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(2,42px);gap:5px;justify-content:center;margin:16px auto 0}.controls button{padding:0;border-radius:10px;background:#18254d;color:#fff;box-shadow:0 3px 0 #0b1028;border:1px solid #38519a;font-size:1.2rem}.controls .up{grid-column:2;grid-row:1}.controls .left{grid-column:1;grid-row:2}.controls .down{grid-column:2;grid-row:2}.controls .right{grid-column:3;grid-row:2}
+@media(min-width:650px){.controls{display:none}}.tiny{font-size:.78rem;color:#8292bb;text-align:center;margin-top:14px}
+</style>
+</head>
+<body>
+<main class="shell">
+<header><h1>MAZE CHOMP</h1><p>A neon maze-chase arcade game</p></header>
+<section class="hud" aria-label="Game stats">
+<div class="stat"><span>SCORE</span><strong id="score">0000</strong></div>
+<div class="stat"><span>MAZE DOTS</span><strong id="dots">0</strong></div>
+<div class="stat"><span>LIVES</span><strong id="lives">♥ ♥ ♥</strong></div>
+<div class="stat"><span>LEVEL</span><strong id="level">01</strong></div>
+</section>
+<div class="frame">
+<canvas id="game" width="504" height="576" aria-label="Maze Chomp game board"></canvas>
+<div class="overlay" id="overlay"><div class="modal"><h2 id="overlayTitle">READY?</h2><p id="overlayText">Eat every dot, grab power orbs, and dodge the chasers. Arrow keys or WASD to move.</p><button id="startBtn">START GAME</button></div></div>
+</div>
+<div class="controls" aria-label="Touch controls">
+<button class="up" data-dir="up" aria-label="Up">▲</button><button class="left" data-dir="left" aria-label="Left">◀</button><button class="down" data-dir="down" aria-label="Down">▼</button><button class="right" data-dir="right" aria-label="Right">▶</button>
+</div>
+<div class="bottom"><span>Move: <strong>Arrow keys / WASD</strong></span><span>Pause: <strong>Space</strong></span><span>Power orbs make chasers vulnerable.</span></div>
+<p class="tiny">Made for the browser · No installs, accounts, or external libraries required</p>
+</main>
+<script>
+(() => {
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score'),dotsEl=document.getElementById('dots'),livesEl=document.getElementById('lives'),levelEl=document.getElementById('level');
+const overlay=document.getElementById('overlay'),overlayTitle=document.getElementById('overlayTitle'),overlayText=document.getElementById('overlayText'),startBtn=document.getElementById('startBtn');
+const TILE=24, COLS=21, ROWS=24;
+const mapTemplate=[
+"#####################",
+"#.........#.........#",
+"#.###.###.#.###.###.#",
+"#o#...#... ...#...#o#",
+"#.###.#.#####.#.###.#",
+"#.....#...#...#.....#",
+"#####.###.#.###.#####",
+"    #.#.......#.#    ",
+"#####.#.## ##.#.#####",
+"     ...#GGG#...     ",
+"#####.#.#####.#.#####",
+"    #.#.......#.#    ",
+"#####.#.#####.#.#####",
+"#.........#.........#",
+"#.###.###.#.###.###.#",
+"#o..#.....P.....#..o#",
+"###.#.#.#####.#.#.###",
+"#.....#...#...#.....#",
+"#.#######.#.#######.#",
+"#......... ........#",
+"#.###.###.#.###.###.#",
+"#...#.....#.....#...#",
+"#...................#",
+"#####################"
+];
+// Make a mutable maze. Spaces are open corridors; G is ghost pen; P is player spawn.
+let grid, player, ghosts, score, lives, level, powerUntil, running=false, paused=false, raf=0, last=0, moveClock=0, ghostClock=0, frightened=false, dotsLeft=0, gameOver=false;
+const dirs={left:{x:-1,y:0},right:{x:1,y:0},up:{x:0,y:-1},down:{x:0,y:1}};
+function resetMaze(){
+ grid=mapTemplate.map(r=>r.padEnd(COLS,' ').slice(0,COLS).split(''));
+ dotsLeft=0;
+ for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)if(grid[y][x]==='.'||grid[y][x]==='o')dotsLeft++;
+ player={x:10,y:15,dir:'left',next:'left'};
+ ghosts=[{x:9,y:9,dir:'left',color:'#ff557a',homeX:9,homeY:9},{x:10,y:9,dir:'up',color:'#61e8ff',homeX:10,homeY:9},{x:11,y:9,dir:'right',color:'#ff9d45',homeX:11,homeY:9}];
+ powerUntil=0;moveClock=0;ghostClock=0;updateHud();
+}
+function updateHud(){scoreEl.textContent=String(score).padStart(4,'0');dotsEl.textContent=dotsLeft;livesEl.textContent='♥ '.repeat(lives).trim()||'—';levelEl.textContent=String(level).padStart(2,'0');}
+function wall(x,y){if(y<0||y>=ROWS||x<0||x>=COLS)return true;return grid[y][x]==='#';}
+function canMove(ent,dir){const d=dirs[dir];return !wall(ent.x+d.x,ent.y+d.y);}
+function movePlayer(){
+ if(player.next&&canMove(player,player.next))player.dir=player.next;
+ if(canMove(player,player.dir)){const d=dirs[player.dir];player.x+=d.x;player.y+=d.y;}
+ let c=grid[player.y]?.[player.x];
+ if(c==='.'||c==='o'){grid[player.y][player.x]=' ';dotsLeft--;score+=c==='o'?50:10;if(c==='o')powerUntil=performance.now()+6500;updateHud();}
+ if(dotsLeft<=0){level++;resetMaze();showOverlay('LEVEL CLEAR!',`Great run! Level ${level} is ready.`, 'NEXT LEVEL');running=false;}
+}
+function ghostStep(g){
+ let options=Object.keys(dirs).filter(d=>canMove(g,d));
+ if(options.length>1)options=options.filter(d=>d!==opposite(g.dir));
+ if(!options.length)return;
+ // Chasers pursue the player; frightened ghosts wander away.
+ options.sort((a,b)=>{
+  const da=dirs[a],db=dirs[b];
+  const sa=(g.x+da.x-player.x)**2+(g.y+da.y-player.y)**2;
+  const sb=(g.x+db.x-player.x)**2+(g.y+db.y-player.y)**2;
+  return frightened?sb-sa:sa-sb;
+ });
+ let choice=Math.random()<.24?options[Math.floor(Math.random()*options.length)]:options[0];
+ g.dir=choice;const d=dirs[choice];g.x+=d.x;g.y+=d.y;
+}
+function opposite(d){return ({left:'right',right:'left',up:'down',down:'up'})[d];}
+function collisions(){
+ for(const g of ghosts){if(g.x===player.x&&g.y===player.y){
+  if(frightened){score+=200;g.x=g.homeX;g.y=g.homeY;updateHud();}
+  else {lives--;updateHud();if(lives<=0){running=false;gameOver=true;showOverlay('GAME OVER',`Final score: ${score}. Ready for another run?`,'PLAY AGAIN');}
+  else {player.x=10;player.y=15;player.dir='left';player.next='left';ghosts.forEach((gh,i)=>{gh.x=gh.homeX;gh.y=gh.homeY;gh.dir=['left','up','right'][i]});}}
+  break;
+ }}
+}
+function draw(){
+ ctx.fillStyle='#030612';ctx.fillRect(0,0,canvas.width,canvas.height);
+ const now=performance.now();frightened=now<powerUntil;
+ for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+  const c=grid[y][x],px=x*TILE,py=y*TILE;
+  if(c==='#'){ctx.fillStyle='#112d83';ctx.fillRect(px+1,py+1,TILE-2,TILE-2);ctx.strokeStyle='#3674ff';ctx.lineWidth=1.2;ctx.strokeRect(px+3,py+3,TILE-6,TILE-6);}
+  else if(c==='.'||c==='o'){ctx.beginPath();ctx.fillStyle=c==='o'?'#fff0a6':'#8feaff';ctx.shadowColor=c==='o'?'#ffe45c':'#62e7ff';ctx.shadowBlur=c==='o'?12:4;ctx.arc(px+TILE/2,py+TILE/2,c==='o'?5:2.2,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;}
+ }
+ // Player
+ const px=player.x*TILE+TILE/2,py=player.y*TILE+TILE/2;
+ const mouth=(Math.sin(now/75)+1)*.18+.04, angle={right:0,left:Math.PI,up:-Math.PI/2,down:Math.PI/2}[player.dir];
+ ctx.fillStyle='#ffe45c';ctx.shadowColor='#ffe45c';ctx.shadowBlur=15;ctx.beginPath();ctx.moveTo(px,py);ctx.arc(px,py,9,angle+mouth,angle+Math.PI*2-mouth);ctx.closePath();ctx.fill();ctx.shadowBlur=0;
+ // Ghosts
+ for(const g of ghosts){const gx=g.x*TILE+TILE/2,gy=g.y*TILE+TILE/2;ctx.fillStyle=frightened?'#526dff':g.color;ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=10;ctx.beginPath();ctx.arc(gx,gy-1,9,Math.PI,0);ctx.lineTo(gx+9,gy+8);ctx.lineTo(gx+4,gy+5);ctx.lineTo(gx,gy+8);ctx.lineTo(gx-4,gy+5);ctx.lineTo(gx-9,gy+8);ctx.closePath();ctx.fill();ctx.shadowBlur=0;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(gx-3,gy-1,3,0,Math.PI*2);ctx.arc(gx+3,gy-1,3,0,Math.PI*2);ctx.fill();ctx.fillStyle='#15204a';ctx.beginPath();ctx.arc(gx-2,gy,1.5,0,Math.PI*2);ctx.arc(gx+4,gy,1.5,0,Math.PI*2);ctx.fill();}
+}
+function loop(t){if(!running)return;const dt=Math.min(t-last,40);last=t;if(!paused){moveClock+=dt;ghostClock+=dt;if(moveClock>115){movePlayer();moveClock=0;}if(ghostClock>(frightened?245:310)){ghosts.forEach(ghostStep);ghostClock=0;}collisions();}draw();if(running)raf=requestAnimationFrame(loop);}
+function showOverlay(title,txt,button){overlayTitle.textContent=title;overlayText.textContent=txt;startBtn.textContent=button;overlay.classList.remove('hidden');}
+function start(){if(running)return;if(gameOver){score=0;lives=3;level=1;gameOver=false;resetMaze();}else if(!grid) {score=0;lives=3;level=1;resetMaze();}overlay.classList.add('hidden');running=true;paused=false;last=performance.now();cancelAnimationFrame(raf);raf=requestAnimationFrame(loop);}
+function setDir(d){if(dirs[d]&&running&&!paused)player.next=d;}
+document.addEventListener('keydown',e=>{const key=e.key.toLowerCase();const mapping={arrowleft:'left',a:'left',arrowright:'right',d:'right',arrowup:'up',w:'up',arrowdown:'down',s:'down'};if(mapping[key]){e.preventDefault();if(!grid){score=0;lives=3;level=1;resetMaze();}setDir(mapping[key]);}if(key===' '){e.preventDefault();if(running){paused=!paused;if(paused)showOverlay('PAUSED','Take a breather. Your maze is waiting.','RESUME');else{overlay.classList.add('hidden');last=performance.now();raf=requestAnimationFrame(loop);}}}});
+document.querySelectorAll('[data-dir]').forEach(b=>{b.addEventListener('click',()=>{if(!grid){score=0;lives=3;level=1;resetMaze();}if(!running)start();setDir(b.dataset.dir);});});
+startBtn.addEventListener('click',()=>{if(running&&paused){paused=false;overlay.classList.add('hidden');last=performance.now();raf=requestAnimationFrame(loop);}else start();});
+resetMaze();draw();
+})();
+</script>
+</body>
+</html>
